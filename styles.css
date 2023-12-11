@@ -1,0 +1,44 @@
+body {
+    background-color: white;
+}
+
+.rack {
+    display: grid;
+    grid-template-columns: 1fr; /* single column layout */
+    grid-gap: 10px; /* spacing between shelves */
+}
+
+.shelf {
+    display: grid;
+    grid-template-rows: 76.20px 15px;  /* bin height and shelf height */
+    grid-template-columns: repeat(auto-fill, 104.78px); /* bin width */
+    width: 1027px; /* rack width */
+    align-items: start; /* align to the top */
+}
+
+.shelf-bottom {
+    grid-column: 1 / -1;  /* spans the full width of the grid */
+    height: 15px; /* same as the shelf height in .shelf grid-template-rows */
+    background-color: #c1c8d1; /* or any color you want for the shelf */
+}
+
+.bin {
+    grid-row: 1;  /* position the bins above the shelves */
+    width: 104.78px; /* bin width */
+    height: 76.20px; /* bin height */
+    border: solid 1px rgba(0,0,0,0);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.highlight {
+    border: solid 6px  #FF0005;
+    border-radius: 10px;
+}
+
+svg {
+    margin: 1px;
+    width: 100%; /* fill the available space */
+    height: 100%;
+}
