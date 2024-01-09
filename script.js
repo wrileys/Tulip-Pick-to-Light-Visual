@@ -1,16 +1,43 @@
 let shelves;
-// let binsPer;
-let highlightList;
-let stockoutList;
-let paths = {
-  A: "M 6 0 H 100 V 53 H 6 Z H 0 V 53 L 6 77 H 100 L 106 53 V 0 Z M 13 59 V 71 H 93 V 59 H 91 V 69 H 15 V 59 Z", // Path for A bins
-  B: "M 9 0 H 131 V 53 H 9 Z H 0 V 53 L 9 77 H 131 L 140 53 V 0 Z M 18 59 V 72 H 120 V 59 H 118 V 70 H 20 V 59 Z", // Path for B bins
-  C: "M 10 0 H 202 V 53 H 10 Z H 0 V 53 L 10 77 H 202 L 212 53 V 0 Z M 27 59 V 72 H 183 V 59 H 180 V 69 H 30 V 59 Z", // Path for C bins
-  D: "M 8 0 H 292 V 53 H 8 Z H 0 V 53 L 8 76 H 292 L 300 53 V 0 Z M 24 59 V 71 H 276 V 59 H 273 V 69 H 27 V 59 Z", // Path for D bins
-};
+let highlightList_1;
+let highlightList_2;
+
+let prevHighlightList_1 = [];
+let prevHighlightList_2 = [];
+
 let shelfSchema; // Define shelfSchema globally
 
-// ---
+let horizontalScale = 1;
+let verticalScale = 1;
+// Generate Bin Paths using dimmensions provided
+
+function generatePath(binType, { horizontalScale, verticalScale }) {
+  let binDimensions = getValue("Bin Dimensions").find(
+    (b) => b["Bin ID"] === binType
+  );
+
+  if (!binDimensions) {
+    console.error(`Bin dimensions not found for bin type: ${binType}`);
+    return ""; // Return an empty path or some default path
+  }
+
+  let totalWidth =
+    (binDimensions["Bin Total Width (mm)"] || 106) * horizontalScale;
+  let totalHeight =
+    (binDimensions["Bin Total Height (mm)"] || 77) * verticalScale;
+  let horizontalLip =
+    (binDimensions["Bin Horizontal Lip (mm)"] || 8) * horizontalScale;
+  let verticalLip =
+    (binDimensions["Bin Vertical Lip (mm)"] || 24) * verticalScale;
+
+  return `M ${horizontalLip} 0 H ${totalWidth - horizontalLip} V ${
+    totalHeight - verticalLip
+  } H ${horizontalLip} Z H 0 V ${
+    totalHeight - verticalLip
+  } L ${horizontalLip} ${totalHeight} H ${
+    totalWidth - horizontalLip
+  } L ${totalWidth} ${totalHeight - verticalLip} V 0 Z`;
+}
 
 function buildrack() {
   let rack = document.querySelector("#rack");
@@ -32,9 +59,8 @@ function buildrack() {
 
     shelf.forEach((item) => {
       if (item.type === "bin") {
-        // Increment totalBinsCreated before creating the next bin
         totalBinsCreated++;
-        let binDiv = createBinElement(totalBinsCreated, paths[item.size]);
+        let binDiv = createBinElement(totalBinsCreated, item.size); // Pass bin type
         shelfDiv.appendChild(binDiv);
       } else if (item.type === "gap") {
         let gapDiv = createGapElement(item.size);
@@ -43,124 +69,193 @@ function buildrack() {
     });
   });
 }
-// Helper functions to modularize the creation of bins and gaps.
 
-function createBinElement(binNumber, path) {
-  let binDiv = document.createElement("div");
-  binDiv.id = "bin" + binNumber;
-  binDiv.setAttribute("binNumber", binNumber);
-  binDiv.classList.add("bin");
-  binDiv.innerHTML = `<svg viewBox="0 0 300 77"><path d="${path}" fill="#FFFFFF"></path></svg>`;
+function selectBin(binID) {
+  const selectedBin = document.getElementById(binID);
+  const previouslySelectedBin = document.querySelector(".bin.selected");
 
-  // Add event listener for bin selection if needed
-  binDiv.addEventListener("click", () => selectBin(binDiv.id));
+  // If the clicked bin is already selected, unselect it
+  if (selectedBin.classList.contains("selected")) {
+    selectedBin.classList.remove("selected");
+    fireEvent("Bin Selected", 0);
+    setValue("Select", null); // Unselect current bin
+  } else {
+    // Remove 'selected' class from the previously selected bin, if any
+    if (previouslySelectedBin) {
+      previouslySelectedBin.classList.remove("selected");
+    }
 
-  return binDiv;
+    // Select the new bin and fire event with its number
+    selectedBin.classList.add("selected");
+    fireEvent("Bin Selected", parseInt(selectedBin.getAttribute("binNumber")));
+    setValue("Select", parseInt(selectedBin.getAttribute("binNumber")));
+  }
 }
 
-function createGapElement(size) {
+function createGapElement(sizeInMillimeters) {
+  const mmToPx = 1;
+  let sizeInPixels = parseInt(sizeInMillimeters) * mmToPx;
+
+  // Apply horizontal scaling
+  sizeInPixels *= horizontalScale;
+
   let gapDiv = document.createElement("div");
   gapDiv.classList.add("gap");
-  gapDiv.style.width = size + "px";
+
+  // Set width in pixels
+  gapDiv.style.width = `${sizeInPixels}px`;
+
   return gapDiv;
 }
 
+let toggleHighlight = true; // Global toggle variable
+
 function updateHighlights() {
   let bins = document.querySelectorAll(".bin");
+  let currentHighlightList_1 = getValue("Highlight list 1");
+  let currentHighlightList_2 = getValue("Highlight list 2");
+
+  // Moved to local variables
+  const highlightColor1 = getValue("Highlight color 1");
+  const highlightColor2 = getValue("Highlight color 2");
 
   bins.forEach((binDiv) => {
-    let binNumber = binDiv.getAttribute("binNumber");
+    let binNumber = parseInt(binDiv.getAttribute("binNumber"));
     let binSvgPath = binDiv.querySelector("svg path");
 
-    // Retrieve the list of highlighted bins along with their colors
-    let highlightList = getValue("Highlight list"); // Expected to be an array of objects { binNumber: Number, color: String }
-    let stockoutList = getValue("Stockout list"); // Array of bin numbers
-    let binColor = getValue("Bin color"); // Default bin color
-
-    // Reset to default bin color
+    let binColor = getValue("Bin color");
     binSvgPath.setAttribute("fill", binColor);
 
-    // Check if the bin is in the stockout list
-    if (stockoutList && stockoutList.includes(parseInt(binNumber))) {
-      binSvgPath.setAttribute("fill", getValue("Stockout color"));
+    let isHighlighted1 = currentHighlightList_1.includes(binNumber);
+    let isHighlighted2 = currentHighlightList_2.includes(binNumber);
+
+    let newColor = binColor;
+
+    // Toggle which highlight has priority and update color
+    if (toggleHighlight) {
+      if (isHighlighted1) {
+        newColor = highlightColor1;
+      } else if (isHighlighted2) {
+        newColor = highlightColor2;
+      }
+    } else {
+      if (isHighlighted2) {
+        newColor = highlightColor2;
+      } else if (isHighlighted1) {
+        newColor = highlightColor1;
+      }
     }
-    // Check if the bin is in the highlight list
-    if (highlightList && highlightList.includes(parseInt(binNumber))) {
-      binSvgPath.setAttribute("fill", getValue("Highlight color"));
+
+    if (isHighlighted1 && isHighlighted2) {
+      // Assuming newColor is an object with RGBA values and needs to be converted to a color string
+      let colorString = `rgba(${newColor.r}, ${newColor.g}, ${newColor.b}, ${newColor.a})`;
+
+      fireEvent("Bin Color Change", {
+        "Bin Number": binNumber,
+        newColor: newColor,
+      });
     }
+
+    binSvgPath.setAttribute("fill", newColor);
   });
+
+  prevHighlightList_1 = currentHighlightList_1.slice();
+  prevHighlightList_2 = currentHighlightList_2.slice();
+
+  toggleHighlight = !toggleHighlight;
 }
 
 // Run the updateHighlights function initially and then periodically
 updateHighlights();
-setInterval(updateHighlights, 1000); // Adjust the interval as needed
+setInterval(updateHighlights, 1500); // Adjust the interval as needed
 
-function selectBin(binID) {
-  let selectedBin = document.getElementById(binID);
-
-  // Toggle the 'selected' class on the clicked bin
-  if (selectedBin) {
-    selectedBin.classList.toggle("selected");
-    // Perform additional actions as needed when a bin is selected
-    // Example: fireEvent, setValue, etc.
-  }
-}
-
-function createBinElement(binId, path) {
+function createBinElement(binId, binType) {
   let binDiv = document.createElement("div");
   binDiv.id = "bin" + binId;
   binDiv.setAttribute("binNumber", binId);
   binDiv.classList.add("bin");
-  binDiv.innerHTML = `<svg viewBox="0 0 300 77"><path d="${path}"></path></svg>`;
 
-  // Adding click event listener for bin selection
+  let path = generatePath(binType, { horizontalScale, verticalScale });
+  let binDimensions = getValue("Bin Dimensions").find(
+    (b) => b["Bin ID"] === binType
+  );
+  let width =
+    (binDimensions?.["Bin Total Width (mm)"] || 106) * horizontalScale;
+  let height = (binDimensions?.["Bin Total Height (mm)"] || 77) * verticalScale;
+
+  binDiv.innerHTML = `<svg viewBox="0 0 ${width} ${height}"><path d="${path}" fill="red"></path></svg>`;
+
+  // Adjust the height of the bin element
+  binDiv.style.height = `${height}px`;
+
   binDiv.addEventListener("click", () => selectBin(binDiv.id));
 
   return binDiv;
 }
 
 // Assuming updateHighlights needs to be called every second
-setInterval(updateHighlights, 1000);
+setInterval(updateHighlights, 1500);
 
 // Parse configuration and build rack on initial load
-let configText =
-  "[Shelf 1: -1:=10mm, 1:=A, 2:=B, 2-3:=95mm, 3:=A, 4:=D, 4-5:=20cm, 5:=C], [Shelf 2: 1:=B, 2-3:=15mm, 3:=C]";
-shelfSchema = parseShelfConfig(configText);
-buildrack();
 
-function parseShelfConfig(configText) {
-  // Split the configuration text into individual shelf configurations
-  let shelfConfigs = configText.match(/\[Shelf \d+: [^\]]+\]/g);
+let rackConfig = getValue("Rack Config Text");
+// function parseShelfConfig(rackConfig) {
+//   if (!rackConfig || !rackConfig.Shelves) {
+//     console.error("Invalid or missing rack configuration.");
+//     return [];
+//   }
 
-  if (!shelfConfigs) {
-    console.error("Invalid configuration format.");
+//   return rackConfig.Shelves.map((shelf) => {
+//     return shelf.Items.map((item) => {
+//       if (item.Type === "Bin") {
+//         return { type: "bin", id: item["Bin ID"], size: item["Size(mm)"] };
+//       } else if (item.Type === "Gap") {
+//         return { type: "gap", size: item["Size(mm)"] };
+//       }
+//     });
+//   });
+// }
+
+function parseShelfConfig(stringifiedRackConfig) {
+  let newRackConfig;
+  try {
+    newRackConfig = JSON.parse(stringifiedRackConfig);
+  } catch (error) {
+    console.error("Invalid or malformed rack configuration JSON.");
+    console.log(stringifiedRackConfig);
     return [];
   }
 
-  return shelfConfigs.map((shelfConfig) => {
-    // Remove the shelf label and brackets
-    let configItems = shelfConfig.replace(/\[Shelf \d+: /, "").slice(0, -1);
+  if (!Array.isArray(newRackConfig)) {
+    console.error("Rack configuration is not an array.");
+    return [];
+  }
 
-    // Split the shelf configuration into individual items
-    let items = configItems.split(", ");
+  let shelves = {};
 
-    return items.map((item) => {
-      // Split each item into identifier and value/type using the ':=' operator
-      let [identifier, value] = item.split(":=");
+  newRackConfig.forEach((item) => {
+    shelves[item.Shelf] = shelves[item.Shelf] || [];
 
-      // Determine if the item is a bin or a gap
-      if (identifier.includes("-")) {
-        // It's a gap
-        return { type: "gap", range: identifier, size: value };
-      } else {
-        // It's a bin
-        return { type: "bin", id: parseInt(identifier), size: value };
-      }
-    });
+    if (item.Type === "Bin") {
+      shelves[item.Shelf].push({
+        type: "bin",
+        size: item.Size,
+        binNumber: item["Bin Number"],
+      });
+    } else if (item.Type === "Gap") {
+      shelves[item.Shelf].push({
+        type: "gap",
+        size: item.Size, // Assuming the size provided is suitable for your use case
+      });
+    }
   });
+
+  return Object.keys(shelves).map((shelfNumber) => shelves[shelfNumber]);
 }
 
+shelfSchema = parseShelfConfig(rackConfig);
+buildrack();
 
 // Start periodic updates of highlights
 updateHighlights();
-setInterval(updateHighlights, 1000);
+setInterval(updateHighlights, 1500);
